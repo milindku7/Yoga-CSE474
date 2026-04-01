@@ -1,0 +1,26 @@
+Yoga Pose Classifier — Training Report
+==================================================
+
+Total samples: 143
+Features per sample: 43
+Classes: [np.str_('sittingpose')]
+
+CV: Skipped (single class)
+
+
+Top 15 Features:
+  torso_inclination: 0.0000
+  right_knee_angle: 0.0000
+  left_knee_angle: 0.0000
+  right_hip_angle: 0.0000
+  left_hip_angle: 0.0000
+  right_shoulder_angle: 0.0000
+  left_shoulder_angle: 0.0000
+  right_elbow_angle: 0.0000
+  left_elbow_angle: 0.0000
+  right_ankle_y: 0.0000
+  right_ankle_x: 0.0000
+  left_ankle_y: 0.0000
+  left_ankle_x: 0.0000
+  right_knee_y: 0.0000
+  right_knee_x: 0.0000

@@ -1,111 +1,321 @@
+"""
+app.py — Yoga Pose Corrector Web Application
+
+Flask server that:
+  1. Captures webcam frames via browser MediaDevices API
+  2. Processes each frame with YOLO pose estimation 
+  3. Classifies the pose using the trained model
+  4. Generates correction feedback overlaid on the video
+  5. Streams the annotated frames back to the browser
+  
+Run: python app.py
+Open: http://localhost:5000
+"""
+
+import os
+import sys
 import cv2
+import json
+import base64
 import numpy as np
+from io import BytesIO
+from flask import Flask, render_template, Response, jsonify, request
+from flask_cors import CORS
 from ultralytics import YOLO
 
-# 1. Load the YOLO11 Pose model
-# Using the 'nano' (n) model for maximum real-time speed. 
-# You can upgrade to 's', 'm', or 'l' for better accuracy if your GPU can handle it.
-model = YOLO('yolo11n-pose.pt')
+# Import our modules
+from pose_corrector import PoseCorrector, extract_features, calculate_angle, ANGLE_DEFINITIONS
 
-def calculate_angle(a, b, c):
-    """
-    Calculates the angle between three points.
-    a, b, c are tuples or lists of (x, y) coordinates. b is the vertex.
-    """
-    a = np.array(a) # First point
-    b = np.array(b) # Mid point (Vertex)
-    c = np.array(c) # End point
+# ────────────────────────────────────────────────────────────────────
+# Flask Setup
+# ────────────────────────────────────────────────────────────────────
+app = Flask(__name__)
+CORS(app)
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Load YOLO model
+print("Loading YOLO pose model...")
+yolo_model = YOLO(os.path.join(BASE_DIR, "yolo11n-pose.pt"))
+print("YOLO model loaded.")
+
+# Load pose corrector (if trained model exists)
+corrector = None
+try:
+    corrector = PoseCorrector(BASE_DIR)
+    print(f"Pose corrector loaded. Classes: {corrector.pose_classes}")
+except FileNotFoundError as e:
+    print(f"Warning: {e}")
+    print("Running in detection-only mode (no pose classification).")
+
+
+# ────────────────────────────────────────────────────────────────────
+# Video Streaming (webcam capture)
+# ────────────────────────────────────────────────────────────────────
+camera = None
+
+def get_camera():
+    global camera
+    if camera is None or not camera.isOpened():
+        camera = cv2.VideoCapture(0)
+        camera.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+        camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+    return camera
+
+
+def draw_correction_overlay(frame, result, keypoints):
+    """Draw beautiful correction overlay on the frame."""
+    h, w = frame.shape[:2]
     
-    radians = np.arctan2(c[1] - b[1], c[0] - b[0]) - np.arctan2(a[1] - b[1], a[0] - b[0])
-    angle = np.abs(radians * 180.0 / np.pi)
+    # Semi-transparent overlay panel at top
+    overlay = frame.copy()
     
-    if angle > 180.0:
-        angle = 360 - angle
+    # ── Top status bar ──
+    cv2.rectangle(overlay, (0, 0), (w, 90), (20, 20, 20), -1)
+    cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
+    
+    pose_name = result["pose"].replace("_", " ").title()
+    score = result["score"]
+    confidence = result["confidence"]
+    color = corrector.get_correction_color(score) if corrector else (0, 255, 0)
+    label = corrector.get_score_label(score) if corrector else ""
+    
+    # Pose name
+    cv2.putText(frame, f"Pose: {pose_name}",
+                (20, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
+    
+    # Score bar
+    bar_x, bar_y = 20, 55
+    bar_w, bar_h = 200, 20
+    cv2.rectangle(frame, (bar_x, bar_y), (bar_x + bar_w, bar_y + bar_h), (60, 60, 60), -1)
+    fill_w = int(bar_w * score / 100)
+    cv2.rectangle(frame, (bar_x, bar_y), (bar_x + fill_w, bar_y + bar_h), color, -1)
+    cv2.putText(frame, f"{score:.0f}%",
+                (bar_x + bar_w + 10, bar_y + 16), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+    
+    # Label
+    cv2.putText(frame, label,
+                (bar_x + bar_w + 60, bar_y + 16), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+    
+    # Confidence
+    cv2.putText(frame, f"Confidence: {confidence*100:.0f}%",
+                (w - 250, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (180, 180, 180), 1)
+    
+    # ── Correction hints (right side panel) ──
+    corrections = result["corrections"]
+    if corrections:
+        panel_w = 350
+        panel_h = 40 + len(corrections) * 55
+        px = w - panel_w - 15
+        py = 100
         
-    return angle
-
-def draw_alignment_grid(frame):
-    """Draws a subtle grid to help with overall posture alignment."""
-    h, w, _ = frame.shape
-    # Draw vertical and horizontal center lines
-    cv2.line(frame, (w // 2, 0), (w // 2, h), (255, 255, 255), 1)
-    cv2.line(frame, (0, h // 2), (w, h // 2), (255, 255, 255), 1)
-
-# 2. Start Video Capture
-cap = cv2.VideoCapture(0)
-
-while cap.isOpened():
-    success, frame = cap.read()
-    if not success:
-        print("Ignoring empty camera frame.")
-        break
-
-    # Flip the frame horizontally for a mirror effect
-    frame = cv2.flip(frame, 1)
-
-    # 3. Run YOLO11 inference
-    results = model(frame, verbose=False)
-
-    # Draw the base skeleton
-    annotated_frame = results[0].plot()
-    draw_alignment_grid(annotated_frame)
-
-    # 4. Extract Keypoints and Evaluate Form
-    try:
-        # Check if any person is detected
-        if results[0].keypoints is not None and len(results[0].keypoints.xy[0]) > 0:
-            # Get the keypoints for the first detected person
-            keypoints = results[0].keypoints.xy[0].cpu().numpy()
+        overlay2 = frame.copy()
+        cv2.rectangle(overlay2, (px, py), (px + panel_w, py + panel_h), (20, 20, 40), -1)
+        cv2.addWeighted(overlay2, 0.75, frame, 0.25, 0, frame)
+        
+        cv2.putText(frame, "Corrections:",
+                    (px + 10, py + 25), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (100, 200, 255), 2)
+        
+        for i, corr in enumerate(corrections):
+            cy = py + 50 + i * 55
+            severity = corr["severity"]
             
-            # Confidence scores for keypoints (optional, useful for filtering bad data)
-            # conf = results[0].keypoints.conf[0].cpu().numpy()
+            if severity >= 2.0:
+                dot_color = (0, 0, 255)
+            elif severity >= 1.0:
+                dot_color = (0, 165, 255)
+            else:
+                dot_color = (0, 255, 255)
+            
+            cv2.circle(frame, (px + 20, cy + 5), 6, dot_color, -1)
+            cv2.putText(frame, corr["hint"],
+                        (px + 35, cy + 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+            cv2.putText(frame, f"{corr['current']:.0f}° → {corr['target']:.0f}°",
+                        (px + 35, cy + 30), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (150, 150, 150), 1)
+            
+            # Draw correction indicator on skeleton
+            kp_indices = corr["keypoint_indices"]
+            vertex_idx = kp_indices[1]
+            vx, vy = int(keypoints[vertex_idx][0]), int(keypoints[vertex_idx][1])
+            if vx > 0 and vy > 0:
+                cv2.circle(frame, (vx, vy), 18, dot_color, 3)
+                cv2.circle(frame, (vx, vy), 22, dot_color, 1)
+    else:
+        # All good indicator
+        overlay2 = frame.copy()
+        cv2.rectangle(overlay2, (w - 280, 100), (w - 15, 155), (0, 80, 0), -1)
+        cv2.addWeighted(overlay2, 0.7, frame, 0.3, 0, frame)
+        cv2.putText(frame, "✓ Perfect Form!",
+                    (w - 265, 138), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+    
+    # ── Draw angle values on joints ──
+    angles = result.get("angles", {})
+    for angle_name, (a_idx, b_idx, c_idx) in ANGLE_DEFINITIONS.items():
+        if angle_name in angles and angles[angle_name] is not None:
+            vx, vy = int(keypoints[b_idx][0]), int(keypoints[b_idx][1])
+            if vx > 0 and vy > 0:
+                angle_val = angles[angle_name]
+                cv2.putText(frame, f"{angle_val:.0f}°",
+                            (vx + 10, vy - 10), cv2.FONT_HERSHEY_SIMPLEX, 
+                            0.4, (200, 200, 200), 1)
+    
+    return frame
 
-            # Example: Evaluate the Right Arm (Shoulder[6], Elbow[8], Wrist[10])
-            r_shoulder = keypoints[6]
-            r_elbow = keypoints[8]
-            r_wrist = keypoints[10]
 
-            # Check if all points are detected (YOLO outputs [0,0] if not confident/visible)
-            if all(pt[0] != 0 and pt[1] != 0 for pt in [r_shoulder, r_elbow, r_wrist]):
+def process_frame(frame):
+    """Process a single frame: detect pose, classify, correct."""
+    # Run YOLO
+    results = yolo_model(frame, verbose=False)
+    annotated = results[0].plot()
+    
+    result_data = None
+    
+    try:
+        if (results[0].keypoints is not None and 
+            len(results[0].keypoints.xy) > 0 and
+            len(results[0].keypoints.xy[0]) > 0):
+            
+            keypoints = results[0].keypoints.xy[0].cpu().numpy()
+            conf = results[0].keypoints.conf[0].cpu().numpy()
+            
+            if corrector is not None:
+                result_data = corrector.classify_pose(keypoints)
                 
-                # Calculate the angle
-                arm_angle = calculate_angle(r_shoulder, r_elbow, r_wrist)
-                
-                # Visual Feedback Logic: Let's assume the user is trying to keep their arm straight (180 degrees)
-                # like in a Warrior II pose.
-                if 165 <= arm_angle <= 180:
-                    feedback_color = (0, 255, 0) # Green for good form
-                    feedback_text = "Good Arm Form!"
-                else:
-                    feedback_color = (0, 0, 255) # Red for correction
-                    feedback_text = "Straighten your right arm"
-                    
-                    # Draw a guiding correction line from shoulder to where the wrist SHOULD be
-                    # (This is simplified, but demonstrates the concept)
-                    cv2.line(annotated_frame, 
-                             (int(r_shoulder[0]), int(r_shoulder[1])), 
-                             (int(r_wrist[0]), int(r_shoulder[1])), # Forcing a horizontal line
-                             (0, 255, 255), 3) # Yellow guiding line
-                
-                # Display the angle at the elbow
-                cv2.putText(annotated_frame, str(int(arm_angle)), 
-                            (int(r_elbow[0]) + 15, int(r_elbow[1])), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, feedback_color, 2)
-                
-                # Display the instruction on the screen
-                cv2.putText(annotated_frame, feedback_text, (50, 50), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 1, feedback_color, 2, cv2.LINE_AA)
-
+                if result_data is not None:
+                    annotated = draw_correction_overlay(annotated, result_data, keypoints)
+            else:
+                # Fallback: just show angles without classification
+                for angle_name, (a_idx, b_idx, c_idx) in ANGLE_DEFINITIONS.items():
+                    a, b, c = keypoints[a_idx], keypoints[b_idx], keypoints[c_idx]
+                    if np.all(a != 0) and np.all(b != 0) and np.all(c != 0):
+                        angle = calculate_angle(a, b, c)
+                        vx, vy = int(b[0]), int(b[1])
+                        cv2.putText(annotated, f"{angle:.0f}°",
+                                    (vx + 10, vy - 10), cv2.FONT_HERSHEY_SIMPLEX,
+                                    0.45, (0, 255, 255), 1)
     except Exception as e:
-        # Handle cases where keypoints might be out of bounds or missing
         pass
+    
+    return annotated, result_data
 
-    # 5. Show the feed
-    cv2.imshow('Yoga Pose Coach', annotated_frame)
 
-    # Press 'q' to quit
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
+def generate_frames():
+    """Generate frames for MJPEG streaming."""
+    cam = get_camera()
+    
+    while True:
+        success, frame = cam.read()
+        if not success:
+            break
+        
+        frame = cv2.flip(frame, 1)
+        processed, _ = process_frame(frame)
+        
+        ret, buffer = cv2.imencode('.jpg', processed, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        if not ret:
+            continue
+        
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
 
-cap.release()
-cv2.destroyAllWindows()
+
+# ────────────────────────────────────────────────────────────────────
+# Routes
+# ────────────────────────────────────────────────────────────────────
+
+@app.route('/')
+def index():
+    """Serve the main page."""
+    return render_template('index.html')
+
+
+@app.route('/video_feed')
+def video_feed():
+    """MJPEG stream endpoint."""
+    return Response(
+        generate_frames(),
+        mimetype='multipart/x-mixed-replace; boundary=frame'
+    )
+
+
+@app.route('/api/process_frame', methods=['POST'])
+def api_process_frame():
+    """
+    Process a single frame sent from the browser.
+    Accepts base64-encoded JPEG image.
+    Returns annotated image + correction data as JSON.
+    """
+    data = request.get_json()
+    if not data or 'image' not in data:
+        return jsonify({"error": "No image provided"}), 400
+    
+    # Decode base64 image
+    img_data = data['image']
+    if ',' in img_data:
+        img_data = img_data.split(',')[1]
+    
+    img_bytes = base64.b64decode(img_data)
+    nparr = np.frombuffer(img_bytes, np.uint8)
+    frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    
+    if frame is None:
+        return jsonify({"error": "Invalid image"}), 400
+    
+    frame = cv2.flip(frame, 1)
+    processed, result_data = process_frame(frame)
+    
+    # Encode result image
+    ret, buffer = cv2.imencode('.jpg', processed, [cv2.IMWRITE_JPEG_QUALITY, 85])
+    result_img = base64.b64encode(buffer).decode('utf-8')
+    
+    response = {
+        "image": f"data:image/jpeg;base64,{result_img}",
+    }
+    
+    if result_data:
+        response["pose"] = result_data["pose"]
+        response["score"] = result_data["score"]
+        response["confidence"] = result_data["confidence"]
+        response["corrections"] = result_data["corrections"]
+        response["angles"] = {k: v for k, v in result_data["angles"].items() if v is not None}
+    
+    return jsonify(response)
+
+
+@app.route('/api/status')
+def api_status():
+    """Return system status."""
+    return jsonify({
+        "yolo_model": "loaded",
+        "corrector": "loaded" if corrector else "not_trained",
+        "pose_classes": corrector.pose_classes if corrector else [],
+        "camera": "available" if camera and camera.isOpened() else "not_started"
+    })
+
+
+@app.route('/api/poses')
+def api_poses():
+    """Return available pose classes and their reference angles."""
+    if corrector is None:
+        return jsonify({"error": "Model not trained yet"}), 404
+    
+    return jsonify({
+        "classes": corrector.pose_classes,
+        "references": corrector.references
+    })
+
+
+# ────────────────────────────────────────────────────────────────────
+# Entry Point
+# ────────────────────────────────────────────────────────────────────
+if __name__ == '__main__':
+    print("\n" + "=" * 60)
+    print("  🧘 Yoga Pose Corrector")
+    print("=" * 60)
+    print(f"  Model: {'Loaded' if corrector else 'Not trained — run train_model.py'}")
+    if corrector:
+        print(f"  Poses: {', '.join(corrector.pose_classes)}")
+    print(f"  Open: http://localhost:5000")
+    print("=" * 60 + "\n")
+    
+    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
