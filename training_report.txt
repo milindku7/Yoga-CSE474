@@ -1,26 +1,38 @@
 Yoga Pose Classifier — Training Report
 ==================================================
 
-Total samples: 143
+Total samples: 269
 Features per sample: 43
-Classes: [np.str_('sittingpose')]
+Classes: [np.str_('sittingpose'), np.str_('toe'), np.str_('tree'), np.str_('wind')]
 
-CV: Skipped (single class)
+CV Accuracy: 0.9851 ± 0.0106
+
+Classification Report (20% test):
+              precision    recall  f1-score   support
+
+ sittingpose       1.00      1.00      1.00        29
+         toe       1.00      0.67      0.80         6
+        tree       0.85      1.00      0.92        11
+        wind       1.00      1.00      1.00         8
+
+    accuracy                           0.96        54
+   macro avg       0.96      0.92      0.93        54
+weighted avg       0.97      0.96      0.96        54
 
 
 Top 15 Features:
-  torso_inclination: 0.0000
-  right_knee_angle: 0.0000
-  left_knee_angle: 0.0000
-  right_hip_angle: 0.0000
-  left_hip_angle: 0.0000
-  right_shoulder_angle: 0.0000
-  left_shoulder_angle: 0.0000
-  right_elbow_angle: 0.0000
-  left_elbow_angle: 0.0000
-  right_ankle_y: 0.0000
-  right_ankle_x: 0.0000
-  left_ankle_y: 0.0000
-  left_ankle_x: 0.0000
-  right_knee_y: 0.0000
-  right_knee_x: 0.0000
+  left_ankle_y: 0.0802
+  right_knee_y: 0.0746
+  left_knee_y: 0.0741
+  right_ankle_y: 0.0695
+  left_ear_y: 0.0587
+  right_ear_y: 0.0465
+  right_shoulder_angle: 0.0431
+  right_elbow_y: 0.0411
+  nose_y: 0.0411
+  left_elbow_y: 0.0402
+  right_shoulder_y: 0.0394
+  left_eye_y: 0.0370
+  left_shoulder_y: 0.0339
+  right_eye_y: 0.0320
+  left_shoulder_angle: 0.0313

@@ -131,9 +131,14 @@ class PoseCorrector:
         self.angle_history = {}
         self.angle_smooth_size = 5
     
-    def classify_pose(self, keypoints):
+    def classify_pose(self, keypoints, target_pose=None):
         """
         Classify the pose and return (class_name, confidence, corrections).
+        
+        Args:
+            keypoints: numpy array of 17 keypoints
+            target_pose: optional string — if set, corrections compare against
+                         this pose's reference angles instead of auto-detected pose
         
         Returns:
             dict with keys:
@@ -142,6 +147,7 @@ class PoseCorrector:
                 - corrections: list of dicts with correction feedback
                 - angles: dict of current angle values
                 - score: float (0-100, overall pose accuracy)
+                - target_pose: str (pose used for corrections)
         """
         features = extract_features(keypoints)
         if features is None:
@@ -163,6 +169,9 @@ class PoseCorrector:
         from collections import Counter
         vote_counts = Counter(self.prediction_history)
         smoothed_pose = vote_counts.most_common(1)[0][0]
+        
+        # Use target_pose for corrections if specified, otherwise use detected pose
+        correction_pose = target_pose if (target_pose and target_pose in self.references) else smoothed_pose
         
         # Compute current angles
         current_angles = {}
@@ -187,8 +196,8 @@ class PoseCorrector:
         corrections = []
         total_score = 100.0
         
-        if smoothed_pose in self.references:
-            ref = self.references[smoothed_pose]
+        if correction_pose in self.references:
+            ref = self.references[correction_pose]
             
             for angle_name, current_val in current_angles.items():
                 if current_val is None or angle_name not in ref:
@@ -234,6 +243,7 @@ class PoseCorrector:
         
         return {
             "pose": smoothed_pose,
+            "target_pose": correction_pose,
             "confidence": round(confidence, 3),
             "corrections": top_corrections,
             "all_corrections": corrections,

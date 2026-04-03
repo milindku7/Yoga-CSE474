@@ -53,6 +53,7 @@ except FileNotFoundError as e:
 # Video Streaming (webcam capture)
 # ────────────────────────────────────────────────────────────────────
 camera = None
+target_pose = None  # User-selected target pose for corrections
 
 def get_camera():
     global camera
@@ -145,7 +146,7 @@ def draw_correction_overlay(frame, result, keypoints):
         overlay2 = frame.copy()
         cv2.rectangle(overlay2, (w - 280, 100), (w - 15, 155), (0, 80, 0), -1)
         cv2.addWeighted(overlay2, 0.7, frame, 0.3, 0, frame)
-        cv2.putText(frame, "✓ Perfect Form!",
+        cv2.putText(frame, "[OK] Perfect Form!",
                     (w - 265, 138), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
     
     # ── Draw angle values on joints ──
@@ -179,7 +180,7 @@ def process_frame(frame):
             conf = results[0].keypoints.conf[0].cpu().numpy()
             
             if corrector is not None:
-                result_data = corrector.classify_pose(keypoints)
+                result_data = corrector.classify_pose(keypoints, target_pose=target_pose)
                 
                 if result_data is not None:
                     annotated = draw_correction_overlay(annotated, result_data, keypoints)
@@ -303,6 +304,26 @@ def api_poses():
         "classes": corrector.pose_classes,
         "references": corrector.references
     })
+
+
+@app.route('/api/set_target_pose', methods=['POST'])
+def api_set_target_pose():
+    """Set the target pose for corrections."""
+    global target_pose
+    data = request.get_json()
+    if not data or 'pose' not in data:
+        return jsonify({"error": "No pose specified"}), 400
+    
+    pose = data['pose']
+    if pose == '' or pose == 'auto':
+        target_pose = None
+        return jsonify({"target_pose": None, "message": "Auto-detect mode"})
+    
+    if corrector and pose in corrector.pose_classes:
+        target_pose = pose
+        return jsonify({"target_pose": pose, "message": f"Target set to {pose}"})
+    else:
+        return jsonify({"error": f"Unknown pose: {pose}"}), 400
 
 
 # ────────────────────────────────────────────────────────────────────

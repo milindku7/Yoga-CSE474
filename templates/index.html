@@ -163,12 +163,12 @@
         .main-container {
             position: relative;
             z-index: 1;
-            max-width: 1440px;
+            max-width: 1200px;
             margin: 0 auto;
-            padding: 24px 32px;
+            padding: 16px 24px;
             display: grid;
-            grid-template-columns: 1fr 380px;
-            gap: 24px;
+            grid-template-columns: 1fr 340px;
+            gap: 20px;
             min-height: calc(100vh - 80px);
         }
 
@@ -635,6 +635,54 @@
             }
         }
 
+        /* ── Pose Dropdown ────────────────────────────────────── */
+        .pose-select-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .pose-select-label {
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-secondary);
+            white-space: nowrap;
+        }
+
+        .pose-select {
+            appearance: none;
+            -webkit-appearance: none;
+            padding: 8px 32px 8px 14px;
+            border: 1px solid var(--border-glass);
+            border-radius: var(--radius-sm);
+            background: var(--bg-card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%239595b8' d='M6 8L1 3h10z'/%3E%3C/svg%3E") no-repeat right 10px center;
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            min-width: 160px;
+        }
+
+        .pose-select:hover {
+            border-color: var(--accent-primary);
+            background-color: rgba(124, 92, 252, 0.1);
+        }
+
+        .pose-select:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 3px var(--accent-glow);
+        }
+
+        .pose-select option {
+            background: var(--bg-card);
+            color: var(--text-primary);
+        }
+
         /* ── Hidden Canvas ────────────────────────────────────── */
         #hiddenCanvas {
             display: none;
@@ -701,6 +749,13 @@
                 <button class="btn btn-secondary" id="btnSnapshot">
                     <span class="btn-icon">📸</span> Snapshot
                 </button>
+
+                <div class="pose-select-wrapper">
+                    <span class="pose-select-label">Pose:</span>
+                    <select class="pose-select" id="poseSelect">
+                        <option value="auto">Auto-Detect</option>
+                    </select>
+                </div>
             </div>
         </div>
 
@@ -784,6 +839,8 @@
         const modeStream     = $('modeStream');
         const modeBrowser    = $('modeBrowser');
 
+        const poseSelect     = $('poseSelect');
+
         // ── Check Status ─────────────────────────────────────
         async function checkStatus() {
             try {
@@ -801,6 +858,38 @@
             }
         }
         checkStatus();
+
+        // ── Load Poses ───────────────────────────────────────
+        async function loadPoses() {
+            try {
+                const res = await fetch('/api/poses');
+                if (!res.ok) return;
+                const data = await res.json();
+                if (data.classes) {
+                    data.classes.forEach(cls => {
+                        const opt = document.createElement('option');
+                        opt.value = cls;
+                        opt.textContent = cls.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+                        poseSelect.appendChild(opt);
+                    });
+                }
+            } catch (e) {
+                console.error('Failed to load poses:', e);
+            }
+        }
+        loadPoses();
+
+        poseSelect.addEventListener('change', async () => {
+            try {
+                await fetch('/api/set_target_pose', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ pose: poseSelect.value })
+                });
+            } catch (e) {
+                console.error('Failed to set target pose:', e);
+            }
+        });
 
         // ── Mode Toggle ──────────────────────────────────────
         modeStream.addEventListener('click', () => setMode('stream'));
