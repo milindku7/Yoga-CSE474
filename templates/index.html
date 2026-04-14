@@ -179,6 +179,13 @@
             gap: 16px;
         }
 
+        .camera-layout {
+            display: grid;
+            grid-template-columns: 2.1fr 1fr;
+            gap: 16px;
+            align-items: stretch;
+        }
+
         .video-container {
             position: relative;
             border-radius: var(--radius-lg);
@@ -187,6 +194,61 @@
             border: 1px solid var(--border-glass);
             box-shadow: var(--shadow-lg), var(--shadow-glow);
             aspect-ratio: 16 / 9;
+        }
+
+        .pose-reference-card {
+            background: var(--bg-glass);
+            backdrop-filter: blur(16px);
+            border: 1px solid var(--border-glass);
+            border-radius: var(--radius-lg);
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            min-height: 100%;
+        }
+
+        .pose-reference-title {
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            color: var(--text-secondary);
+        }
+
+        .pose-reference-frame {
+            position: relative;
+            border-radius: var(--radius-md);
+            overflow: hidden;
+            border: 1px solid var(--border-glass);
+            background: rgba(0, 0, 0, 0.25);
+            aspect-ratio: 3 / 4;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .pose-reference-frame img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: none;
+        }
+
+        .pose-reference-placeholder {
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 13px;
+            line-height: 1.5;
+            padding: 10px;
+        }
+
+        .pose-reference-name {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-primary);
+            text-align: center;
+            min-height: 20px;
         }
 
         .video-container img,
@@ -610,6 +672,10 @@
                 padding: 16px;
             }
 
+            .camera-layout {
+                grid-template-columns: 1fr;
+            }
+
             .side-panel {
                 max-height: none;
             }
@@ -713,22 +779,35 @@
     <main class="main-container">
         <!-- Video Panel -->
         <div class="video-panel">
-            <div class="video-container" id="videoContainer">
-                <!-- Mode 1: MJPEG Stream from server -->
-                <img id="mjpegStream" src="" alt="Yoga Pose Feed" style="display: none;">
-                
-                <!-- Mode 2: Browser webcam + API processing -->
-                <video id="webcamVideo" autoplay playsinline muted style="display: none;"></video>
-                <canvas id="processedCanvas" style="display: none; width: 100%; height: 100%;"></canvas>
-                
-                <!-- Placeholder -->
-                <div class="video-placeholder" id="videoPlaceholder">
-                    <span class="video-placeholder-icon">📹</span>
-                    <span class="video-placeholder-text">Camera Not Started</span>
-                    <span class="video-placeholder-sub">Click "Start Camera" to begin</span>
+            <div class="camera-layout">
+                <div class="video-container" id="videoContainer">
+                    <!-- Mode 1: MJPEG Stream from server -->
+                    <img id="mjpegStream" src="" alt="Yoga Pose Feed" style="display: none;">
+                    
+                    <!-- Mode 2: Browser webcam + API processing -->
+                    <video id="webcamVideo" autoplay playsinline muted style="display: none;"></video>
+                    <canvas id="processedCanvas" style="display: none; width: 100%; height: 100%;"></canvas>
+                    
+                    <!-- Placeholder -->
+                    <div class="video-placeholder" id="videoPlaceholder">
+                        <span class="video-placeholder-icon">📹</span>
+                        <span class="video-placeholder-text">Camera Not Started</span>
+                        <span class="video-placeholder-sub">Click "Start Camera" to begin</span>
+                    </div>
+
+                    <div class="fps-counter" id="fpsCounter" style="display: none;">-- FPS</div>
                 </div>
-                
-                <div class="fps-counter" id="fpsCounter" style="display: none;">-- FPS</div>
+
+                <div class="pose-reference-card">
+                    <div class="pose-reference-title">Target Pose Reference</div>
+                    <div class="pose-reference-frame">
+                        <img id="poseReferenceImage" src="" alt="Target pose reference image">
+                        <div class="pose-reference-placeholder" id="poseReferencePlaceholder">
+                            Select a target pose to see the example image.
+                        </div>
+                    </div>
+                    <div class="pose-reference-name" id="poseReferenceName">Auto-Detect</div>
+                </div>
             </div>
 
             <!-- Controls -->
@@ -825,6 +904,7 @@
         let processingLoop = null;
         let frameCount = 0;
         let lastFpsTime = Date.now();
+        let poseReferenceUrls = {};
 
         // ── DOM Elements ─────────────────────────────────────
         const $ = id => document.getElementById(id);
@@ -840,6 +920,9 @@
         const modeBrowser    = $('modeBrowser');
 
         const poseSelect     = $('poseSelect');
+        const poseRefImage   = $('poseReferenceImage');
+        const poseRefPlaceholder = $('poseReferencePlaceholder');
+        const poseRefName    = $('poseReferenceName');
 
         // ── Check Status ─────────────────────────────────────
         async function checkStatus() {
@@ -873,6 +956,8 @@
                         poseSelect.appendChild(opt);
                     });
                 }
+                poseReferenceUrls = data.pose_image_urls || {};
+                updatePoseReference('auto');
             } catch (e) {
                 console.error('Failed to load poses:', e);
             }
@@ -886,10 +971,46 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ pose: poseSelect.value })
                 });
+                updatePoseReference(poseSelect.value);
             } catch (e) {
                 console.error('Failed to set target pose:', e);
             }
         });
+
+        function humanizePoseName(pose) {
+            return pose.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        }
+
+        function updatePoseReference(pose) {
+            if (!pose || pose === 'auto') {
+                poseRefImage.style.display = 'none';
+                poseRefImage.removeAttribute('src');
+                poseRefPlaceholder.style.display = 'block';
+                poseRefPlaceholder.textContent = 'Auto-Detect mode is on. Choose a pose to show its target image.';
+                poseRefName.textContent = 'Auto-Detect';
+                return;
+            }
+
+            const imageUrl = poseReferenceUrls[pose];
+            poseRefName.textContent = humanizePoseName(pose);
+
+            if (!imageUrl) {
+                poseRefImage.style.display = 'none';
+                poseRefImage.removeAttribute('src');
+                poseRefPlaceholder.style.display = 'block';
+                poseRefPlaceholder.textContent = 'No reference image found for this pose yet.';
+                return;
+            }
+
+            poseRefImage.src = imageUrl;
+            poseRefImage.onerror = () => {
+                poseRefImage.style.display = 'none';
+                poseRefPlaceholder.style.display = 'block';
+                poseRefPlaceholder.textContent = 'Reference image could not be loaded.';
+            };
+            poseRefImage.style.display = 'block';
+            poseRefPlaceholder.style.display = 'none';
+        }
 
         // ── Mode Toggle ──────────────────────────────────────
         modeStream.addEventListener('click', () => setMode('stream'));

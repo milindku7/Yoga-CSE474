@@ -19,7 +19,7 @@ import json
 import base64
 import numpy as np
 from io import BytesIO
-from flask import Flask, render_template, Response, jsonify, request
+from flask import Flask, render_template, Response, jsonify, request, send_from_directory
 from flask_cors import CORS
 from ultralytics import YOLO
 
@@ -54,6 +54,20 @@ except FileNotFoundError as e:
 # ────────────────────────────────────────────────────────────────────
 camera = None
 target_pose = None  # User-selected target pose for corrections
+
+
+def get_pose_reference_image_filename(pose_name):
+    """Return a deterministic sample image filename for a pose folder, if present."""
+    pose_dir = os.path.join(BASE_DIR, "dataset", pose_name)
+    if not os.path.isdir(pose_dir):
+        return None
+
+    valid_exts = (".jpg", ".jpeg", ".png", ".webp")
+    files = [
+        name for name in sorted(os.listdir(pose_dir))
+        if os.path.isfile(os.path.join(pose_dir, name)) and name.lower().endswith(valid_exts)
+    ]
+    return files[0] if files else None
 
 def get_camera():
     global camera
@@ -299,10 +313,16 @@ def api_poses():
     """Return available pose classes and their reference angles."""
     if corrector is None:
         return jsonify({"error": "Model not trained yet"}), 404
+
+    pose_image_urls = {}
+    for pose in corrector.pose_classes:
+        if get_pose_reference_image_filename(pose):
+            pose_image_urls[pose] = f"/api/pose_reference_image/{pose}"
     
     return jsonify({
         "classes": corrector.pose_classes,
-        "references": corrector.references
+        "references": corrector.references,
+        "pose_image_urls": pose_image_urls
     })
 
 
@@ -324,6 +344,20 @@ def api_set_target_pose():
         return jsonify({"target_pose": pose, "message": f"Target set to {pose}"})
     else:
         return jsonify({"error": f"Unknown pose: {pose}"}), 400
+
+
+@app.route('/api/pose_reference_image/<pose_name>')
+def api_pose_reference_image(pose_name):
+    """Serve a reference image for the requested pose from dataset/<pose_name>."""
+    if corrector is not None and pose_name not in corrector.pose_classes:
+        return jsonify({"error": f"Unknown pose: {pose_name}"}), 404
+
+    filename = get_pose_reference_image_filename(pose_name)
+    if not filename:
+        return jsonify({"error": f"No reference image for pose: {pose_name}"}), 404
+
+    pose_dir = os.path.join(BASE_DIR, "dataset", pose_name)
+    return send_from_directory(pose_dir, filename)
 
 
 # ────────────────────────────────────────────────────────────────────
