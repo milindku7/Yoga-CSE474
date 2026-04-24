@@ -1,17 +1,3 @@
-"""
-app.py — Yoga Pose Corrector Web Application
-
-Flask server that:
-  1. Captures webcam frames via browser MediaDevices API
-  2. Processes each frame with YOLO pose estimation 
-  3. Classifies the pose using the trained model
-  4. Generates correction feedback overlaid on the video
-  5. Streams the annotated frames back to the browser
-  
-Run: python app.py
-Open: http://localhost:5000
-"""
-
 import os
 import sys
 import cv2
@@ -23,23 +9,17 @@ from flask import Flask, render_template, Response, jsonify, request, send_from_
 from flask_cors import CORS
 from ultralytics import YOLO
 
-# Import our modules
 from pose_corrector import PoseCorrector, extract_features, calculate_angle, ANGLE_DEFINITIONS
 
-# ────────────────────────────────────────────────────────────────────
-# Flask Setup
-# ────────────────────────────────────────────────────────────────────
 app = Flask(__name__)
 CORS(app)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Load YOLO model
 print("Loading YOLO pose model...")
 yolo_model = YOLO(os.path.join(BASE_DIR, "yolo11n-pose.pt"))
 print("YOLO model loaded.")
 
-# Load pose corrector (if trained model exists)
 corrector = None
 try:
     corrector = PoseCorrector(BASE_DIR)
@@ -49,16 +29,13 @@ except FileNotFoundError as e:
     print("Running in detection-only mode (no pose classification).")
 
 
-# ────────────────────────────────────────────────────────────────────
-# Video Streaming (webcam capture)
-# ────────────────────────────────────────────────────────────────────
+
 camera = None
-target_pose = None  # User-selected target pose for corrections
-last_result = None  # Last processed pose result for polling
+target_pose = None  
+last_result = None 
 
 
 def get_pose_reference_image_filename(pose_name):
-    """Return a deterministic sample image filename for a pose folder, if present."""
     pose_dir = os.path.join(BASE_DIR, "dataset", pose_name)
     if not os.path.isdir(pose_dir):
         return None
@@ -80,7 +57,6 @@ def get_camera():
 
 
 def draw_correction_overlay(frame, result, keypoints):
-    """Draw joint highlight circles for corrections on the skeleton."""
     corrections = result["corrections"]
     for corr in corrections:
         severity = corr["severity"]
@@ -102,8 +78,6 @@ def draw_correction_overlay(frame, result, keypoints):
 
 
 def process_frame(frame):
-    """Process a single frame: detect pose, classify, correct."""
-    # Run YOLO
     results = yolo_model(frame, verbose=False)
     annotated = results[0].plot()
     
@@ -123,7 +97,6 @@ def process_frame(frame):
                 if result_data is not None:
                     annotated = draw_correction_overlay(annotated, result_data, keypoints)
             else:
-                # Fallback: just show angles without classification
                 for angle_name, (a_idx, b_idx, c_idx) in ANGLE_DEFINITIONS.items():
                     a, b, c = keypoints[a_idx], keypoints[b_idx], keypoints[c_idx]
                     if np.all(a != 0) and np.all(b != 0) and np.all(c != 0):
@@ -139,7 +112,6 @@ def process_frame(frame):
 
 
 def generate_frames():
-    """Generate frames for MJPEG streaming."""
     global last_result
     cam = get_camera()
 
@@ -161,19 +133,14 @@ def generate_frames():
                b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
 
 
-# ────────────────────────────────────────────────────────────────────
-# Routes
-# ────────────────────────────────────────────────────────────────────
 
 @app.route('/')
 def index():
-    """Serve the main page."""
     return render_template('index.html')
 
 
 @app.route('/video_feed')
 def video_feed():
-    """MJPEG stream endpoint."""
     return Response(
         generate_frames(),
         mimetype='multipart/x-mixed-replace; boundary=frame'
@@ -182,16 +149,11 @@ def video_feed():
 
 @app.route('/api/process_frame', methods=['POST'])
 def api_process_frame():
-    """
-    Process a single frame sent from the browser.
-    Accepts base64-encoded JPEG image.
-    Returns annotated image + correction data as JSON.
-    """
+
     data = request.get_json()
     if not data or 'image' not in data:
         return jsonify({"error": "No image provided"}), 400
     
-    # Decode base64 image
     img_data = data['image']
     if ',' in img_data:
         img_data = img_data.split(',')[1]
@@ -206,7 +168,6 @@ def api_process_frame():
     frame = cv2.flip(frame, 1)
     processed, result_data = process_frame(frame)
     
-    # Encode result image
     ret, buffer = cv2.imencode('.jpg', processed, [cv2.IMWRITE_JPEG_QUALITY, 85])
     result_img = base64.b64encode(buffer).decode('utf-8')
     
@@ -226,7 +187,6 @@ def api_process_frame():
 
 @app.route('/api/status')
 def api_status():
-    """Return system status."""
     return jsonify({
         "yolo_model": "loaded",
         "corrector": "loaded" if corrector else "not_trained",
@@ -237,7 +197,6 @@ def api_status():
 
 @app.route('/api/poses')
 def api_poses():
-    """Return available pose classes and their reference angles."""
     if corrector is None:
         return jsonify({"error": "Model not trained yet"}), 404
 
@@ -255,7 +214,6 @@ def api_poses():
 
 @app.route('/api/set_target_pose', methods=['POST'])
 def api_set_target_pose():
-    """Set the target pose for corrections."""
     global target_pose
     data = request.get_json()
     if not data or 'pose' not in data:
@@ -275,7 +233,6 @@ def api_set_target_pose():
 
 @app.route('/api/current_result')
 def api_current_result():
-    """Return the most recent pose analysis result from the MJPEG stream."""
     if last_result is None:
         return jsonify({})
     return jsonify({
@@ -289,7 +246,6 @@ def api_current_result():
 
 @app.route('/api/pose_reference_image/<pose_name>')
 def api_pose_reference_image(pose_name):
-    """Serve a reference image for the requested pose from dataset/<pose_name>."""
     if corrector is not None and pose_name not in corrector.pose_classes:
         return jsonify({"error": f"Unknown pose: {pose_name}"}), 404
 
@@ -301,9 +257,6 @@ def api_pose_reference_image(pose_name):
     return send_from_directory(pose_dir, filename)
 
 
-# ────────────────────────────────────────────────────────────────────
-# Entry Point
-# ────────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
     print("\n" + "=" * 60)
     print("  🧘 Yoga Pose Corrector")

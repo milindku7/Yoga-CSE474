@@ -9,7 +9,6 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
-        /* ── CSS Reset & Variables ────────────────────────────── */
         *, *::before, *::after {
             margin: 0;
             padding: 0;
@@ -55,7 +54,6 @@
             overflow-x: hidden;
         }
 
-        /* ── Animated Background ─────────────────────────────── */
         body::before {
             content: '';
             position: fixed;
@@ -71,7 +69,6 @@
             z-index: 0;
         }
 
-        /* ── Header / Navbar ─────────────────────────────────── */
         .navbar {
             position: sticky;
             top: 0;
@@ -159,7 +156,6 @@
             50% { opacity: 0.5; transform: scale(0.85); }
         }
 
-        /* ── Main Layout ─────────────────────────────────────── */
         .main-container {
             position: relative;
             z-index: 1;
@@ -168,7 +164,6 @@
             padding: 16px 24px;
         }
 
-        /* ── Video Panel ─────────────────────────────────────── */
         .video-panel {
             display: flex;
             flex-direction: column;
@@ -182,7 +177,6 @@
             align-items: stretch;
         }
 
-        /* ── Below-camera cards row ───────────────────────────── */
         .below-camera-layout {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -289,7 +283,6 @@
             color: var(--text-muted);
         }
 
-        /* ── Controls Bar ────────────────────────────────────── */
         .controls-bar {
             display: flex;
             align-items: center;
@@ -365,7 +358,6 @@
             font-size: 18px;
         }
 
-        /* ── Mode Toggle ──────────────────────────────────────── */
         .mode-toggle {
             display: flex;
             background: var(--bg-card);
@@ -425,7 +417,6 @@
             font-size: 20px;
         }
 
-        /* ── Score Display ────────────────────────────────────── */
         .score-display {
             text-align: center;
             padding: 20px 0;
@@ -490,7 +481,6 @@
             color: var(--text-secondary);
         }
 
-        /* ── Pose Info ────────────────────────────────────────── */
         .pose-info {
             text-align: center;
         }
@@ -510,7 +500,6 @@
             color: var(--text-muted);
         }
 
-        /* ── Corrections List ─────────────────────────────────── */
         .correction-item {
             display: flex;
             align-items: flex-start;
@@ -587,7 +576,6 @@
             margin-bottom: 8px;
         }
 
-        /* ── Waiting State ────────────────────────────────────── */
         .waiting-state {
             text-align: center;
             padding: 40px 20px;
@@ -611,7 +599,6 @@
             line-height: 1.6;
         }
 
-        /* ── FPS Counter ──────────────────────────────────────── */
         .fps-counter {
             position: absolute;
             bottom: 12px;
@@ -625,7 +612,6 @@
             z-index: 10;
         }
 
-        /* ── Responsive ───────────────────────────────────────── */
         @media (max-width: 1024px) {
             .main-container {
                 padding: 16px;
@@ -656,7 +642,6 @@
             }
         }
 
-        /* ── Pose Dropdown ────────────────────────────────────── */
         .pose-select-wrapper {
             display: flex;
             align-items: center;
@@ -704,7 +689,6 @@
             color: var(--text-primary);
         }
 
-        /* ── Hidden Canvas ────────────────────────────────────── */
         #hiddenCanvas {
             display: none;
         }

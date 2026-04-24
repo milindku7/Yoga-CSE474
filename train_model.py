@@ -1,15 +1,3 @@
-"""
-train_model.py — Trains a pose classifier on extracted keypoint features.
-
-Uses a Random Forest classifier (fast, works well with small datasets).
-Saves the trained model and label encoder for use by the real-time corrector.
-
-Output: 
-  - pose_classifier.joblib
-  - label_encoder.joblib
-  - training_report.txt
-"""
-
 import os
 import sys
 import csv
@@ -23,7 +11,6 @@ from sklearn.pipeline import Pipeline
 
 
 def load_dataset(csv_path):
-    """Load the extracted keypoints CSV."""
     features = []
     labels = []
     
@@ -59,11 +46,9 @@ def main():
         count = np.sum(y == cls)
         print(f"    {cls}: {count} samples ({100*count/len(y):.1f}%)")
     
-    # Encode labels
     label_encoder = LabelEncoder()
     y_encoded = label_encoder.fit_transform(y)
     
-    # Create pipeline with scaler + classifier
     pipeline = Pipeline([
         ('scaler', StandardScaler()),
         ('classifier', RandomForestClassifier(
@@ -82,13 +67,11 @@ def main():
     report = None
     
     if n_classes >= 2:
-        # Cross-validation (only meaningful with 2+ classes)
         print("\nRunning 5-fold cross-validation...")
         cv_folds = min(5, n_classes)
         cv_scores = cross_val_score(pipeline, X, y_encoded, cv=cv_folds, scoring='accuracy')
         print(f"  CV Accuracy: {cv_scores.mean():.4f} ± {cv_scores.std():.4f}")
         
-        # Train/test split for detailed report
         if len(X) > 20:
             X_train, X_test, y_train, y_test = train_test_split(
                 X, y_encoded, test_size=0.2, random_state=42, stratify=y_encoded
@@ -112,18 +95,15 @@ def main():
         print(f"\n  Single class detected ('{np.unique(y)[0]}').")
         print("  Skipping cross-validation — model will learn reference angles for correction.")
     
-    # Fit on full dataset for production model
     print("\nTraining final model on full dataset...")
     pipeline.fit(X, y_encoded)
     
-    # Feature importance (from the RandomForest inside pipeline)
     importances = pipeline.named_steps['classifier'].feature_importances_
     top_indices = np.argsort(importances)[::-1][:15]
     print("\nTop 15 Most Important Features:")
     for idx in top_indices:
         print(f"  {feature_names[idx]}: {importances[idx]:.4f}")
     
-    # Save model and encoder
     model_path = os.path.join(base_dir, "pose_classifier.joblib")
     encoder_path = os.path.join(base_dir, "label_encoder.joblib")
     
@@ -133,7 +113,6 @@ def main():
     print(f"\n✅ Model saved to {model_path}")
     print(f"✅ Label encoder saved to {encoder_path}")
     
-    # Save training report
     report_path = os.path.join(base_dir, "training_report.txt")
     with open(report_path, 'w') as f:
         f.write("Yoga Pose Classifier — Training Report\n")
@@ -154,16 +133,11 @@ def main():
     
     print(f"✅ Report saved to {report_path}")
     
-    # Also compute and save reference angles for each pose class
     print("\nComputing reference angles for pose correction...")
     compute_reference_angles(X, y, feature_names, label_encoder, base_dir)
 
 
 def compute_reference_angles(X, y, feature_names, label_encoder, base_dir):
-    """
-    Compute mean and std of each angle for each pose class.
-    These are used for real-time pose correction feedback.
-    """
     angle_features = [f for f in feature_names if 'angle' in f or 'inclination' in f]
     angle_indices = [feature_names.index(f) for f in angle_features]
     
@@ -176,7 +150,6 @@ def compute_reference_angles(X, y, feature_names, label_encoder, base_dir):
         ref = {}
         for i, angle_name in enumerate(angle_features):
             values = cls_data[:, i]
-            # Filter out zeros (undetected)
             valid_values = values[values > 0]
             if len(valid_values) > 0:
                 ref[angle_name] = {
@@ -187,7 +160,6 @@ def compute_reference_angles(X, y, feature_names, label_encoder, base_dir):
                 }
         reference[cls] = ref
     
-    # Save as JSON
     import json
     ref_path = os.path.join(base_dir, "pose_references.json")
     with open(ref_path, 'w') as f:
@@ -195,7 +167,6 @@ def compute_reference_angles(X, y, feature_names, label_encoder, base_dir):
     
     print(f"✅ Reference angles saved to {ref_path}")
     
-    # Print summary
     for cls, angles in reference.items():
         print(f"\n  {cls}:")
         for angle_name, stats in angles.items():

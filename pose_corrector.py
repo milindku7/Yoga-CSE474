@@ -1,17 +1,9 @@
-"""
-pose_corrector.py — Real-time pose correction engine.
-
-Provides feedback by comparing user's current angles against
-the trained reference angles for each pose class.
-"""
-
 import json
 import os
 import numpy as np
 import joblib
 
 
-# ── YOLO COCO Keypoint indices ─────────────────────────────────────
 KEYPOINT_NAMES = [
     "nose", "left_eye", "right_eye", "left_ear", "right_ear",
     "left_shoulder", "right_shoulder", "left_elbow", "right_elbow",
@@ -31,7 +23,6 @@ ANGLE_DEFINITIONS = {
     "torso_inclination":    (0, 11, 13),
 }
 
-# Human-readable correction instructions per angle
 CORRECTION_HINTS = {
     "left_elbow_angle":     {"too_low": "Extend your left arm more",     "too_high": "Bend your left elbow more"},
     "right_elbow_angle":    {"too_low": "Extend your right arm more",    "too_high": "Bend your right elbow more"},
@@ -46,7 +37,6 @@ CORRECTION_HINTS = {
 
 
 def calculate_angle(a, b, c):
-    """Calculate angle at vertex b formed by points a-b-c (degrees)."""
     a, b, c = np.array(a, dtype=float), np.array(b, dtype=float), np.array(c, dtype=float)
     ba = a - b
     bc = c - b
@@ -56,7 +46,6 @@ def calculate_angle(a, b, c):
 
 
 def normalize_keypoints(keypoints):
-    """Normalize keypoints: center on hip midpoint, scale by torso length."""
     kp = keypoints.copy()
     center = (kp[11] + kp[12]) / 2.0
     kp = kp - center
@@ -67,7 +56,6 @@ def normalize_keypoints(keypoints):
 
 
 def extract_features(keypoints):
-    """Extract 43-dim feature vector from 17 keypoints."""
     valid_count = np.sum(np.any(keypoints != 0, axis=1))
     if valid_count < 10:
         return None
@@ -89,19 +77,11 @@ def extract_features(keypoints):
 
 
 class PoseCorrector:
-    """
-    Real-time pose correction engine.
-    
-    1. Classifies the user's current pose using the trained model
-    2. Compares joint angles against reference values
-    3. Generates prioritized correction feedback
-    """
-    
+       
     def __init__(self, base_dir=None):
         if base_dir is None:
             base_dir = os.path.dirname(__file__)
         
-        # Load classifier
         model_path = os.path.join(base_dir, "pose_classifier.joblib")
         encoder_path = os.path.join(base_dir, "label_encoder.joblib")
         ref_path = os.path.join(base_dir, "pose_references.json")
@@ -114,7 +94,6 @@ class PoseCorrector:
         self.model = joblib.load(model_path)
         self.label_encoder = joblib.load(encoder_path)
         
-        # Load reference angles
         if os.path.exists(ref_path):
             with open(ref_path, 'r') as f:
                 self.references = json.load(f)
@@ -123,57 +102,33 @@ class PoseCorrector:
         
         self.pose_classes = list(self.label_encoder.classes_)
         
-        # Smoothing: keep history of predictions
         self.prediction_history = []
         self.history_size = 10
         
-        # Smoothing: keep history of angles
         self.angle_history = {}
         self.angle_smooth_size = 5
     
     def classify_pose(self, keypoints, target_pose=None):
-        """
-        Classify the pose and return (class_name, confidence, corrections).
-        
-        Args:
-            keypoints: numpy array of 17 keypoints
-            target_pose: optional string — if set, corrections compare against
-                         this pose's reference angles instead of auto-detected pose
-        
-        Returns:
-            dict with keys:
-                - pose: str (predicted class name)
-                - confidence: float (0-1)
-                - corrections: list of dicts with correction feedback
-                - angles: dict of current angle values
-                - score: float (0-100, overall pose accuracy)
-                - target_pose: str (pose used for corrections)
-        """
         features = extract_features(keypoints)
         if features is None:
             return None
         
-        # Predict
         features_2d = features.reshape(1, -1)
         proba = self.model.predict_proba(features_2d)[0]
         pred_idx = np.argmax(proba)
         confidence = float(proba[pred_idx])
         pose_name = self.label_encoder.inverse_transform([pred_idx])[0]
         
-        # Smooth predictions
         self.prediction_history.append(pose_name)
         if len(self.prediction_history) > self.history_size:
             self.prediction_history.pop(0)
         
-        # Use majority vote for stability
         from collections import Counter
         vote_counts = Counter(self.prediction_history)
         smoothed_pose = vote_counts.most_common(1)[0][0]
         
-        # Use target_pose for corrections if specified, otherwise use detected pose
         correction_pose = target_pose if (target_pose and target_pose in self.references) else smoothed_pose
         
-        # Compute current angles
         current_angles = {}
         kp = keypoints.copy()
         for angle_name, (a_idx, b_idx, c_idx) in ANGLE_DEFINITIONS.items():
@@ -181,7 +136,6 @@ class PoseCorrector:
             if np.all(a != 0) and np.all(b != 0) and np.all(c != 0):
                 angle = calculate_angle(a, b, c)
                 
-                # Smooth angles
                 if angle_name not in self.angle_history:
                     self.angle_history[angle_name] = []
                 self.angle_history[angle_name].append(angle)
@@ -192,7 +146,6 @@ class PoseCorrector:
             else:
                 current_angles[angle_name] = None
         
-        # Generate corrections
         corrections = []
         total_score = 100.0
         
@@ -228,15 +181,12 @@ class PoseCorrector:
                         "keypoint_indices": list(ANGLE_DEFINITIONS[angle_name])
                     })
                     
-                    # Deduct from score based on severity
                     total_score -= severity * 5
                 else:
                     pass  # within tolerance
         
-        # Sort corrections by severity (most urgent first)
         corrections.sort(key=lambda c: c["severity"], reverse=True)
         
-        # Limit to top 3 corrections to avoid overwhelming the user
         top_corrections = corrections[:3]
         
         total_score = max(0, min(100, total_score))
@@ -253,7 +203,6 @@ class PoseCorrector:
         }
     
     def get_correction_color(self, score):
-        """Return BGR color based on pose accuracy score."""
         if score >= 80:
             return (0, 255, 0)      # Green — excellent
         elif score >= 60:
@@ -264,7 +213,6 @@ class PoseCorrector:
             return (0, 0, 255)      # Red — poor form
     
     def get_score_label(self, score):
-        """Return text label for the score."""
         if score >= 90:
             return "Perfect!"
         elif score >= 80:
