@@ -54,6 +54,7 @@ except FileNotFoundError as e:
 # ────────────────────────────────────────────────────────────────────
 camera = None
 target_pose = None  # User-selected target pose for corrections
+last_result = None  # Last processed pose result for polling
 
 
 def get_pose_reference_image_filename(pose_name):
@@ -79,101 +80,24 @@ def get_camera():
 
 
 def draw_correction_overlay(frame, result, keypoints):
-    """Draw beautiful correction overlay on the frame."""
-    h, w = frame.shape[:2]
-    
-    # Semi-transparent overlay panel at top
-    overlay = frame.copy()
-    
-    # ── Top status bar ──
-    cv2.rectangle(overlay, (0, 0), (w, 90), (20, 20, 20), -1)
-    cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
-    
-    pose_name = result["pose"].replace("_", " ").title()
-    score = result["score"]
-    confidence = result["confidence"]
-    color = corrector.get_correction_color(score) if corrector else (0, 255, 0)
-    label = corrector.get_score_label(score) if corrector else ""
-    
-    # Pose name
-    cv2.putText(frame, f"Pose: {pose_name}",
-                (20, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
-    
-    # Score bar
-    bar_x, bar_y = 20, 55
-    bar_w, bar_h = 200, 20
-    cv2.rectangle(frame, (bar_x, bar_y), (bar_x + bar_w, bar_y + bar_h), (60, 60, 60), -1)
-    fill_w = int(bar_w * score / 100)
-    cv2.rectangle(frame, (bar_x, bar_y), (bar_x + fill_w, bar_y + bar_h), color, -1)
-    cv2.putText(frame, f"{score:.0f}%",
-                (bar_x + bar_w + 10, bar_y + 16), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-    
-    # Label
-    cv2.putText(frame, label,
-                (bar_x + bar_w + 60, bar_y + 16), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-    
-    # Confidence
-    cv2.putText(frame, f"Confidence: {confidence*100:.0f}%",
-                (w - 250, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (180, 180, 180), 1)
-    
-    # ── Correction hints (right side panel) ──
+    """Draw joint highlight circles for corrections on the skeleton."""
     corrections = result["corrections"]
-    if corrections:
-        panel_w = 350
-        panel_h = 40 + len(corrections) * 55
-        px = w - panel_w - 15
-        py = 100
-        
-        overlay2 = frame.copy()
-        cv2.rectangle(overlay2, (px, py), (px + panel_w, py + panel_h), (20, 20, 40), -1)
-        cv2.addWeighted(overlay2, 0.75, frame, 0.25, 0, frame)
-        
-        cv2.putText(frame, "Corrections:",
-                    (px + 10, py + 25), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (100, 200, 255), 2)
-        
-        for i, corr in enumerate(corrections):
-            cy = py + 50 + i * 55
-            severity = corr["severity"]
-            
-            if severity >= 2.0:
-                dot_color = (0, 0, 255)
-            elif severity >= 1.0:
-                dot_color = (0, 165, 255)
-            else:
-                dot_color = (0, 255, 255)
-            
-            cv2.circle(frame, (px + 20, cy + 5), 6, dot_color, -1)
-            cv2.putText(frame, corr["hint"],
-                        (px + 35, cy + 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-            cv2.putText(frame, f"{corr['current']:.0f}° → {corr['target']:.0f}°",
-                        (px + 35, cy + 30), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (150, 150, 150), 1)
-            
-            # Draw correction indicator on skeleton
-            kp_indices = corr["keypoint_indices"]
-            vertex_idx = kp_indices[1]
-            vx, vy = int(keypoints[vertex_idx][0]), int(keypoints[vertex_idx][1])
-            if vx > 0 and vy > 0:
-                cv2.circle(frame, (vx, vy), 18, dot_color, 3)
-                cv2.circle(frame, (vx, vy), 22, dot_color, 1)
-    else:
-        # All good indicator
-        overlay2 = frame.copy()
-        cv2.rectangle(overlay2, (w - 280, 100), (w - 15, 155), (0, 80, 0), -1)
-        cv2.addWeighted(overlay2, 0.7, frame, 0.3, 0, frame)
-        cv2.putText(frame, "[OK] Perfect Form!",
-                    (w - 265, 138), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-    
-    # ── Draw angle values on joints ──
-    angles = result.get("angles", {})
-    for angle_name, (a_idx, b_idx, c_idx) in ANGLE_DEFINITIONS.items():
-        if angle_name in angles and angles[angle_name] is not None:
-            vx, vy = int(keypoints[b_idx][0]), int(keypoints[b_idx][1])
-            if vx > 0 and vy > 0:
-                angle_val = angles[angle_name]
-                cv2.putText(frame, f"{angle_val:.0f}°",
-                            (vx + 10, vy - 10), cv2.FONT_HERSHEY_SIMPLEX, 
-                            0.4, (200, 200, 200), 1)
-    
+    for corr in corrections:
+        severity = corr["severity"]
+        if severity >= 2.0:
+            dot_color = (0, 0, 255)
+        elif severity >= 1.0:
+            dot_color = (0, 165, 255)
+        else:
+            dot_color = (0, 255, 255)
+
+        kp_indices = corr["keypoint_indices"]
+        vertex_idx = kp_indices[1]
+        vx, vy = int(keypoints[vertex_idx][0]), int(keypoints[vertex_idx][1])
+        if vx > 0 and vy > 0:
+            cv2.circle(frame, (vx, vy), 18, dot_color, 3)
+            cv2.circle(frame, (vx, vy), 22, dot_color, 1)
+
     return frame
 
 
@@ -216,20 +140,23 @@ def process_frame(frame):
 
 def generate_frames():
     """Generate frames for MJPEG streaming."""
+    global last_result
     cam = get_camera()
-    
+
     while True:
         success, frame = cam.read()
         if not success:
             break
-        
+
         frame = cv2.flip(frame, 1)
-        processed, _ = process_frame(frame)
-        
+        processed, result_data = process_frame(frame)
+        if result_data is not None:
+            last_result = result_data
+
         ret, buffer = cv2.imencode('.jpg', processed, [cv2.IMWRITE_JPEG_QUALITY, 85])
         if not ret:
             continue
-        
+
         yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
 
@@ -346,6 +273,20 @@ def api_set_target_pose():
         return jsonify({"error": f"Unknown pose: {pose}"}), 400
 
 
+@app.route('/api/current_result')
+def api_current_result():
+    """Return the most recent pose analysis result from the MJPEG stream."""
+    if last_result is None:
+        return jsonify({})
+    return jsonify({
+        "pose": last_result["pose"],
+        "score": last_result["score"],
+        "confidence": last_result["confidence"],
+        "corrections": last_result["corrections"],
+        "angles": {k: v for k, v in last_result["angles"].items() if v is not None},
+    })
+
+
 @app.route('/api/pose_reference_image/<pose_name>')
 def api_pose_reference_image(pose_name):
     """Serve a reference image for the requested pose from dataset/<pose_name>."""
@@ -370,7 +311,7 @@ if __name__ == '__main__':
     print(f"  Model: {'Loaded' if corrector else 'Not trained — run train_model.py'}")
     if corrector:
         print(f"  Poses: {', '.join(corrector.pose_classes)}")
-    print(f"  Open: http://localhost:5000")
+    print(f"  Open: http://localhost:5001")
     print("=" * 60 + "\n")
     
-    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
+    app.run(host='0.0.0.0', port=5001, debug=False, threaded=True)

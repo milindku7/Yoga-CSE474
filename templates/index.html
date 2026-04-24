@@ -163,13 +163,9 @@
         .main-container {
             position: relative;
             z-index: 1;
-            max-width: 1200px;
+            max-width: 1400px;
             margin: 0 auto;
             padding: 16px 24px;
-            display: grid;
-            grid-template-columns: 1fr 340px;
-            gap: 20px;
-            min-height: calc(100vh - 80px);
         }
 
         /* ── Video Panel ─────────────────────────────────────── */
@@ -181,9 +177,16 @@
 
         .camera-layout {
             display: grid;
-            grid-template-columns: 2.1fr 1fr;
+            grid-template-columns: 2.5fr 1fr;
             gap: 16px;
             align-items: stretch;
+        }
+
+        /* ── Below-camera cards row ───────────────────────────── */
+        .below-camera-layout {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
         }
 
         .video-container {
@@ -390,17 +393,6 @@
             color: white;
         }
 
-        /* ── Side Panel ──────────────────────────────────────── */
-        .side-panel {
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
-            max-height: calc(100vh - 120px);
-            overflow-y: auto;
-            scrollbar-width: thin;
-            scrollbar-color: var(--accent-primary) transparent;
-        }
-
         .card {
             background: var(--bg-glass);
             backdrop-filter: blur(16px);
@@ -595,38 +587,6 @@
             margin-bottom: 8px;
         }
 
-        /* ── Angles Grid ──────────────────────────────────────── */
-        .angles-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 8px;
-        }
-
-        .angle-item {
-            display: flex;
-            flex-direction: column;
-            padding: 10px;
-            background: rgba(0, 0, 0, 0.2);
-            border-radius: var(--radius-sm);
-            border-left: 3px solid var(--accent-primary);
-        }
-
-        .angle-name {
-            font-size: 10px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            color: var(--text-muted);
-            margin-bottom: 4px;
-        }
-
-        .angle-value {
-            font-size: 18px;
-            font-weight: 700;
-            font-family: 'JetBrains Mono', monospace;
-            color: var(--text-primary);
-        }
-
         /* ── Waiting State ────────────────────────────────────── */
         .waiting-state {
             text-align: center;
@@ -668,16 +628,11 @@
         /* ── Responsive ───────────────────────────────────────── */
         @media (max-width: 1024px) {
             .main-container {
-                grid-template-columns: 1fr;
                 padding: 16px;
             }
 
             .camera-layout {
                 grid-template-columns: 1fr;
-            }
-
-            .side-panel {
-                max-height: none;
             }
 
             .video-container {
@@ -696,7 +651,7 @@
                 flex-wrap: wrap;
             }
 
-            .angles-grid {
+            .below-camera-layout {
                 grid-template-columns: 1fr;
             }
         }
@@ -777,17 +732,17 @@
 
     <!-- ────── Main Content ────── -->
     <main class="main-container">
-        <!-- Video Panel -->
         <div class="video-panel">
+            <!-- Camera + Pose Reference side by side -->
             <div class="camera-layout">
                 <div class="video-container" id="videoContainer">
                     <!-- Mode 1: MJPEG Stream from server -->
                     <img id="mjpegStream" src="" alt="Yoga Pose Feed" style="display: none;">
-                    
+
                     <!-- Mode 2: Browser webcam + API processing -->
                     <video id="webcamVideo" autoplay playsinline muted style="display: none;"></video>
                     <canvas id="processedCanvas" style="display: none; width: 100%; height: 100%;"></canvas>
-                    
+
                     <!-- Placeholder -->
                     <div class="video-placeholder" id="videoPlaceholder">
                         <span class="video-placeholder-icon">📹</span>
@@ -816,15 +771,15 @@
                     <button class="active" data-mode="stream" id="modeStream">Stream</button>
                     <button data-mode="browser" id="modeBrowser">Browser</button>
                 </div>
-                
+
                 <button class="btn btn-primary" id="btnStart">
                     <span class="btn-icon">▶</span> Start Camera
                 </button>
-                
+
                 <button class="btn btn-danger" id="btnStop" disabled>
                     <span class="btn-icon">⏹</span> Stop
                 </button>
-                
+
                 <button class="btn btn-secondary" id="btnSnapshot">
                     <span class="btn-icon">📸</span> Snapshot
                 </button>
@@ -836,62 +791,51 @@
                     </select>
                 </div>
             </div>
-        </div>
 
-        <!-- Side Panel -->
-        <aside class="side-panel">
-            <!-- Pose Score Card -->
-            <div class="card" id="scoreCard">
-                <div class="card-header">
-                    <span class="card-title">Pose Score</span>
-                    <span class="card-icon">🎯</span>
+            <!-- Pose Score + Corrections below camera -->
+            <div class="below-camera-layout">
+                <!-- Pose Score Card -->
+                <div class="card" id="scoreCard">
+                    <div class="card-header">
+                        <span class="card-title">Pose Score</span>
+                        <span class="card-icon">🎯</span>
+                    </div>
+
+                    <div class="score-display" id="scoreDisplay">
+                        <div class="score-ring">
+                            <svg viewBox="0 0 140 140">
+                                <circle class="score-ring-bg" cx="70" cy="70" r="60"/>
+                                <circle class="score-ring-fill" id="scoreRingFill" cx="70" cy="70" r="60"/>
+                            </svg>
+                            <div class="score-value">
+                                <span class="score-number" id="scoreNumber">--</span>
+                                <span class="score-unit">score</span>
+                            </div>
+                        </div>
+                        <div class="score-label" id="scoreLabel">Waiting...</div>
+                    </div>
+
+                    <div class="pose-info" id="poseInfo" style="display: none;">
+                        <div class="pose-name" id="poseName">--</div>
+                        <div class="pose-confidence" id="poseConfidence">Confidence: --%</div>
+                    </div>
                 </div>
 
-                <div class="score-display" id="scoreDisplay">
-                    <div class="score-ring">
-                        <svg viewBox="0 0 140 140">
-                            <circle class="score-ring-bg" cx="70" cy="70" r="60"/>
-                            <circle class="score-ring-fill" id="scoreRingFill" cx="70" cy="70" r="60"/>
-                        </svg>
-                        <div class="score-value">
-                            <span class="score-number" id="scoreNumber">--</span>
-                            <span class="score-unit">score</span>
+                <!-- Corrections Card -->
+                <div class="card" id="correctionsCard">
+                    <div class="card-header">
+                        <span class="card-title">Pose Corrections</span>
+                        <span class="card-icon">🔧</span>
+                    </div>
+                    <div id="correctionsList">
+                        <div class="waiting-state">
+                            <span class="icon">🧘‍♀️</span>
+                            <p>Start the camera and strike a pose!<br>AI will analyze your form in real-time.</p>
                         </div>
                     </div>
-                    <div class="score-label" id="scoreLabel">Waiting...</div>
-                </div>
-
-                <div class="pose-info" id="poseInfo" style="display: none;">
-                    <div class="pose-name" id="poseName">--</div>
-                    <div class="pose-confidence" id="poseConfidence">Confidence: --%</div>
                 </div>
             </div>
-
-            <!-- Corrections Card -->
-            <div class="card" id="correctionsCard">
-                <div class="card-header">
-                    <span class="card-title">Corrections</span>
-                    <span class="card-icon">🔧</span>
-                </div>
-                <div id="correctionsList">
-                    <div class="waiting-state">
-                        <span class="icon">🧘‍♀️</span>
-                        <p>Start the camera and strike a pose!<br>AI will analyze your form in real-time.</p>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Angles Card -->
-            <div class="card" id="anglesCard">
-                <div class="card-header">
-                    <span class="card-title">Joint Angles</span>
-                    <span class="card-icon">📐</span>
-                </div>
-                <div class="angles-grid" id="anglesGrid">
-                    <!-- Populated dynamically -->
-                </div>
-            </div>
-        </aside>
+        </div>
     </main>
 
     <canvas id="hiddenCanvas"></canvas>
@@ -1085,9 +1029,16 @@
 
         async function pollData() {
             if (!isRunning || mode !== 'stream') return;
-            // We can't easily get per-frame data in MJPEG mode
-            // Just show status info
-            setTimeout(pollData, 2000);
+            try {
+                const res = await fetch('/api/current_result');
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.pose) updateUI(data);
+                }
+            } catch (e) {
+                console.error('Poll error:', e);
+            }
+            setTimeout(pollData, 500);
         }
 
         // ── Browser Capture Mode ─────────────────────────────
@@ -1234,19 +1185,6 @@
                 `;
             }
 
-            // Angles grid
-            if (data.angles) {
-                const grid = $('anglesGrid');
-                grid.innerHTML = Object.entries(data.angles).map(([name, val]) => {
-                    const display = name.replace(/_/g, ' ').replace('angle', '').trim();
-                    return `
-                        <div class="angle-item">
-                            <span class="angle-name">${display}</span>
-                            <span class="angle-value">${val !== null ? val.toFixed(0) + '°' : '--'}</span>
-                        </div>
-                    `;
-                }).join('');
-            }
         }
 
         // ── Snapshot ─────────────────────────────────────────
